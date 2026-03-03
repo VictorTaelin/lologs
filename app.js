@@ -279,15 +279,39 @@ function render_team(label, players) {
 // Replay Mode
 // -----------
 
-// Extracts match ID and platform from user input
-function parse_match(input) {
+// Op.gg region code → Riot platform
+var OPGG_PLAT = {
+  br:   "BR1",  na:  "NA1",  euw: "EUW1", eune: "EUN1",
+  kr:   "KR",   jp:  "JP1",  lan: "LA1",  las:  "LA2",
+  oce:  "OC1",  tr:  "TR1",  ru:  "RU",
+  ph:   "PH2",  sg:  "SG2",  th:  "TH2",  tw:   "TW2", vn: "VN2",
+};
+
+// Parses user input: raw match ID or op.gg URL
+function parse_input(input) {
+  // Direct match ID: BR1_1234567890
   var m = input.match(/([A-Z]{2,4}\d?)_(\d+)/);
-  if (!m) return null;
-  var platform = m[1];
-  var id       = m[0];
-  var region   = REGIONS[platform];
-  if (!region) return null;
-  return { id: id, platform: platform, region: region };
+  if (m) {
+    var region = REGIONS[m[1]];
+    if (region) return { id: m[0], region: region };
+  }
+  // Op.gg URL: /summoners/{region}/{name-tag}/matches/{hash}/{timestamp}
+  var og = input.match(
+    /op\.gg\/lol\/summoners\/([a-z]+)\/([^/]+)\/matches\/[^/]+\/(\d+)/
+  );
+  if (og) {
+    var plat   = OPGG_PLAT[og[1]];
+    var region = plat ? REGIONS[plat] : null;
+    if (!region) return null;
+    // Decode double-encoded summoner name-tag
+    var raw  = decodeURIComponent(decodeURIComponent(og[2]));
+    var dash = raw.lastIndexOf("-");
+    var name = raw.substring(0, dash);
+    var tag  = raw.substring(dash + 1);
+    var ts   = parseInt(og[3]);
+    return { opgg: true, region: region, name: name, tag: tag, ts: ts };
+  }
+  return null;
 }
 
 // Checks a Riot API response for common errors
@@ -317,6 +341,29 @@ async function riot_get(url, key) {
   }
 }
 
+// Resolves an op.gg parsed input to a match ID via Riot API
+async function resolve_opgg(parsed, key, log) {
+  // Look up PUUID from riot ID
+  log.innerHTML = '<div class="ev">Looking up '
+    + esc(parsed.name) + '#' + esc(parsed.tag) + '...</div>';
+  var acct_url = "https://" + parsed.region
+    + ".api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+    + encodeURIComponent(parsed.name) + "/" + encodeURIComponent(parsed.tag);
+  var acct  = await riot_get(acct_url, key);
+  var puuid = acct.puuid;
+  // Find matches around the timestamp (2h window covers game duration)
+  var ts  = Math.floor(parsed.ts / 1000);
+  var url = "https://" + parsed.region
+    + ".api.riotgames.com/lol/match/v5/matches/by-puuid/" + puuid
+    + "/ids?startTime=" + (ts - 7200) + "&endTime=" + (ts + 300) + "&count=5";
+  log.innerHTML = '<div class="ev">Finding match...</div>';
+  var ids = await riot_get(url, key);
+  if (ids.length === 0) {
+    throw new Error("No matches found near that timestamp");
+  }
+  return ids[0];
+}
+
 // Loads and renders a replay timeline
 async function rp_load() {
   var input = $("#rp-input").value.trim();
@@ -324,20 +371,25 @@ async function rp_load() {
   if (!input) return alert("Enter a match ID or op.gg URL.");
   if (!key)   return alert("Enter your Riot API key.");
   localStorage.setItem("riot_key", key);
-  var parsed = parse_match(input);
-  if (!parsed) return alert("Could not parse match ID. Expected: BR1_1234567890");
-  var log = $("#rp-log");
-  log.innerHTML = '<div class="ev">Loading ' + esc(parsed.id) + '...</div>';
+  var parsed = parse_input(input);
+  if (!parsed) return alert("Paste a match ID (BR1_123...) or op.gg match URL.");
+  var log    = $("#rp-log");
+  var region = parsed.region;
   try {
-    var base = "https://" + parsed.region
+    // Resolve match ID (direct or via op.gg lookup)
+    var match_id = parsed.opgg
+      ? await resolve_opgg(parsed, key, log)
+      : parsed.id;
+    log.innerHTML = '<div class="ev">Loading ' + esc(match_id) + '...</div>';
+    var base  = "https://" + region
       + ".api.riotgames.com/lol/match/v5/matches";
-    var match = await riot_get(base + "/" + parsed.id, key);
-    var tl    = await riot_get(base + "/" + parsed.id + "/timeline", key);
+    var match = await riot_get(base + "/" + match_id, key);
+    var tl    = await riot_get(base + "/" + match_id + "/timeline", key);
     render_rp_log(match, tl);
   } catch (e) {
     var msg = String(e.message || e);
     if (msg.includes("fetch") || msg.includes("network") || msg.includes("Failed")) {
-      msg = 'Network error — install "Allow CORS" browser extension, then retry.';
+      msg = 'Network error \u2014 install "Allow CORS" browser extension, then retry.';
     }
     log.innerHTML = '<div class="ev ek">Error: ' + esc(msg) + '</div>';
   }
