@@ -489,12 +489,9 @@ function render_rp_log(match, tl) {
   var parts     = build_parts(match);
   var el        = $("#rp-log");
   var html      = "";
-  var last_snap = -1;
   for (var frame of tl.info.frames) {
-    // Emit snapshot every 5 minutes
-    var snap = Math.floor(frame.timestamp / 300000);
-    if (snap > last_snap && frame.participantFrames) {
-      last_snap = snap;
+    // Emit snapshot every frame (~1 min)
+    if (frame.participantFrames) {
       html += render_snap(frame, parts);
     }
     for (var e of frame.events) {
