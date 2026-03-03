@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoLogs</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>LoLogs</h1>
+    <nav>
+      <button class="tab active" data-tab="live">Live</button>
+      <button class="tab" data-tab="replay">Replay</button>
+    </nav>
+  </header>
+  <main>
+    <!-- Live game streaming -->
+    <section id="panel-live" class="panel">
+      <div class="bar">
+        <span id="live-status" class="off">&#9679; Disconnected</span>
+        <span id="live-time"></span>
+        <button id="live-btn">Connect</button>
+      </div>
+      <div id="live-help" class="help">
+        <p><b>Setup (once per browser session):</b></p>
+        <ol>
+          <li>Start a game or replay in League of Legends</li>
+          <li>Visit <a href="https://127.0.0.1:2999" target="_blank">https://127.0.0.1:2999</a> and accept the certificate warning</li>
+          <li>Return here and click <b>Connect</b></li>
+        </ol>
+      </div>
+      <div id="live-body">
+        <div id="live-log" class="log"></div>
+        <div id="live-side"></div>
+      </div>
+    </section>
+    <!-- Replay timeline -->
+    <section id="panel-replay" class="panel hidden">
+      <div class="bar">
+        <input id="rp-input" placeholder="Match ID (BR1_123...) or op.gg URL" spellcheck="false">
+        <input id="rp-key" type="password" placeholder="Riot API Key">
+        <button id="rp-btn">Load</button>
+        <a class="link" href="https://developer.riotgames.com" target="_blank">Get Key</a>
+      </div>
+      <div id="rp-filters">
+        <button class="flt on" data-f="ek">Kills</button>
+        <button class="flt on" data-f="eo">Objectives</button>
+        <button class="flt on" data-f="es">Structures</button>
+        <button class="flt on" data-f="ei">Items</button>
+        <button class="flt"    data-f="ew">Wards</button>
+        <button class="flt"    data-f="el">Levels</button>
+      </div>
+      <div id="rp-log" class="log hide-ew hide-el"></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
