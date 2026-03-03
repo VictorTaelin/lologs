@@ -414,12 +414,89 @@ function pnm(id, parts) {
   return p ? p.name + " (" + p.champ + ")" : "Player " + id;
 }
 
-// Renders the full replay event log
+// Map Zones
+// ---------
+
+// Maps Summoner's Rift coordinates to a readable zone
+function pos_zone(x, y) {
+  if (!x && !y) return "";
+  // Objective pits
+  var dd = (x - 9866) * (x - 9866) + (y - 4414) * (y - 4414);
+  var db = (x - 4960) * (x - 4960) + (y - 10440) * (y - 10440);
+  if (dd < 4000000) return "Dragon";
+  if (db < 4000000) return "Baron";
+  // Bases
+  if (x < 2000 && y < 2000)   return "Blue Base";
+  if (x > 13000 && y > 13000) return "Red Base";
+  // Lanes
+  if ((x < 2800 && y > 4500) || (y > 12500 && x < 11000)) return "Top";
+  if ((y < 2800 && x > 4500) || (x > 12500 && y < 11000)) return "Bot";
+  if (Math.abs(x - y) < 2800 && x > 2500 && x < 12500)    return "Mid";
+  // Jungle halves
+  if (y > x) return "Top JG";
+  return "Bot JG";
+}
+
+// Formats gold for display (1234 → "1.2k")
+function fmt_gold(g) {
+  if (g >= 1000) return (g / 1000).toFixed(1) + "k";
+  return String(g);
+}
+
+// Readable ward type names
+var WARD_NM = {
+  YELLOW_TRINKET: "trinket",
+  CONTROL_WARD:   "control ward",
+  SIGHT_WARD:     "sight ward",
+  BLUE_TRINKET:   "blue trinket",
+  UNDEFINED:      "ward",
+};
+
+// Readable monster names
+var MON_NM = {
+  FIRE_DRAGON:     "Infernal Drake",
+  WATER_DRAGON:    "Ocean Drake",
+  EARTH_DRAGON:    "Mountain Drake",
+  AIR_DRAGON:      "Cloud Drake",
+  CHEMTECH_DRAGON: "Chemtech Drake",
+  HEXTECH_DRAGON:  "Hextech Drake",
+  ELDER_DRAGON:    "Elder Dragon",
+  BARON_NASHOR:    "Baron Nashor",
+  RIFTHERALD:      "Rift Herald",
+  HORDE:           "Voidgrubs",
+};
+
+// Readable tower type names
+var TOWER_NM = {
+  OUTER_TURRET: "outer turret",
+  INNER_TURRET: "inner turret",
+  BASE_TURRET:  "base turret",
+  NEXUS_TURRET: "nexus turret",
+};
+
+// Readable lane names
+var LANE_NM = {
+  TOP_LANE: "Top",
+  MID_LANE: "Mid",
+  BOT_LANE: "Bot",
+};
+
+// Replay Rendering
+// ----------------
+
+// Renders the full replay event log with periodic snapshots
 function render_rp_log(match, tl) {
-  var parts = build_parts(match);
-  var el    = $("#rp-log");
-  var html  = "";
+  var parts     = build_parts(match);
+  var el        = $("#rp-log");
+  var html      = "";
+  var last_snap = -1;
   for (var frame of tl.info.frames) {
+    // Emit snapshot every 5 minutes
+    var snap = Math.floor(frame.timestamp / 300000);
+    if (snap > last_snap && frame.participantFrames) {
+      last_snap = snap;
+      html += render_snap(frame, parts);
+    }
     for (var e of frame.events) {
       var msg = fmt_rp_evt(e, parts);
       if (!msg) continue;
@@ -432,6 +509,40 @@ function render_rp_log(match, tl) {
     html = '<div class="ev">No events found.</div>';
   }
   el.innerHTML = html;
+}
+
+// Renders a periodic snapshot of all players' state
+function render_snap(frame, parts) {
+  var t   = fmt_ms(frame.timestamp);
+  var pf  = frame.participantFrames;
+  var html = '<div class="ev ep snap-hdr">[' + t
+    + '] \u2500\u2500 SNAPSHOT \u2500\u2500</div>';
+  // Sort by team, then participant ID
+  var ids = Object.keys(pf).sort(function(a, b) {
+    var pa = parts[a] || {};
+    var pb = parts[b] || {};
+    if ((pa.team || 0) !== (pb.team || 0)) {
+      return (pa.team || 0) - (pb.team || 0);
+    }
+    return parseInt(a) - parseInt(b);
+  });
+  for (var id of ids) {
+    var f    = pf[id];
+    var p    = parts[id];
+    var name = p ? p.champ : "Player " + id;
+    var gold = fmt_gold(f.totalGold || 0);
+    var cs   = (f.minionsKilled || 0) + (f.jungleMinionsKilled || 0);
+    var pos  = (f.position)
+      ? pos_zone(f.position.x, f.position.y)
+      : "";
+    var loc  = pos ? " @ " + pos : "";
+    html += '<div class="ev ep">[' + t + ']   '
+      + esc(name) + ' Lv' + f.level
+      + ' | ' + gold + ' gold'
+      + ' | ' + cs + ' CS'
+      + loc + '</div>';
+  }
+  return html;
 }
 
 // Replay event class mapping
@@ -458,7 +569,11 @@ function fmt_rp_evt(e, parts) {
         ? "Minions/Tower"
         : pnm(e.killerId, parts);
       var victim = pnm(e.victimId, parts);
-      var msg    = killer + " killed " + victim;
+      var zone   = e.position
+        ? pos_zone(e.position.x, e.position.y)
+        : "";
+      var loc    = zone ? " @ " + zone : "";
+      var msg    = killer + " killed " + victim + loc;
       if (e.assistingParticipantIds && e.assistingParticipantIds.length > 0) {
         var asts = e.assistingParticipantIds.map(function(id) {
           return pnm(id, parts);
@@ -469,25 +584,37 @@ function fmt_rp_evt(e, parts) {
     }
     case "WARD_PLACED": {
       if (!e.creatorId) return null;
-      var type = (e.wardType || "ward").replace(/_/g, " ");
+      var type = WARD_NM[e.wardType] || "ward";
       return pnm(e.creatorId, parts) + " placed " + type;
     }
     case "WARD_KILL": {
       if (!e.killerId) return null;
-      var type = (e.wardType || "ward").replace(/_/g, " ");
-      return pnm(e.killerId, parts) + " killed " + type;
+      var type = WARD_NM[e.wardType] || "ward";
+      return pnm(e.killerId, parts) + " destroyed " + type;
     }
     case "BUILDING_KILL": {
-      var team = e.teamId === 100 ? "Red" : "Blue";
-      var bld  = e.buildingType === "TOWER_BUILDING" ? "turret" : "inhibitor";
-      var lane = e.laneType ? " (" + e.laneType + ")" : "";
-      return team + " destroyed " + bld + lane;
+      var owner  = e.teamId === 100 ? "Blue" : "Red";
+      var killer = (e.killerId && e.killerId > 0)
+        ? pnm(e.killerId, parts)
+        : (e.teamId === 100 ? "Red" : "Blue") + " team";
+      var bld = e.buildingType === "TOWER_BUILDING"
+        ? (TOWER_NM[e.towerType] || "turret")
+        : "inhibitor";
+      var lane = LANE_NM[e.laneType] || "";
+      var loc  = lane ? " (" + lane + ")" : "";
+      return killer + " destroyed " + owner + " " + bld + loc;
     }
     case "ELITE_MONSTER_KILL": {
-      var who = e.killerId ? pnm(e.killerId, parts) : "A team";
-      var mon = (e.monsterSubType || e.monsterType || "monster")
-        .replace(/_/g, " ");
-      return who + " slew " + mon;
+      var who  = e.killerId ? pnm(e.killerId, parts) : "Unknown";
+      var name = MON_NM[e.monsterSubType]
+              || MON_NM[e.monsterType]
+              || (e.monsterSubType || e.monsterType || "monster")
+                  .replace(/_/g, " ");
+      var zone = e.position
+        ? pos_zone(e.position.x, e.position.y)
+        : "";
+      var loc  = zone ? " @ " + zone : "";
+      return who + " slew " + name + loc;
     }
     case "ITEM_PURCHASED": {
       return pnm(e.participantId, parts) + " bought " + item_nm(e.itemId);
@@ -514,8 +641,10 @@ function fmt_rp_evt(e, parts) {
       return pnm(e.participantId, parts) + " reached level " + e.level;
     }
     case "TURRET_PLATE_DESTROYED": {
-      var lane = e.laneType ? " (" + e.laneType + ")" : "";
-      return "Turret plate destroyed" + lane;
+      var owner = e.teamId === 100 ? "Blue" : "Red";
+      var lane  = LANE_NM[e.laneType] || "";
+      var loc   = lane ? " (" + lane + ")" : "";
+      return owner + " turret plate fell" + loc;
     }
     case "GAME_END": {
       return "Game Over";

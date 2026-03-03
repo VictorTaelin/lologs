@@ -187,7 +187,13 @@ main {
 .ei { color: #58a6ff; }
 .ew { color: #3fb950; }
 .el { color: #bc8cff; }
+.ep { color: #768390; }
 .eg { color: #e6edf3; font-weight: 700; }
+
+.snap-hdr {
+  color: #58a6ff;
+  margin-top: 6px;
+}
 
 /* Filters */
 /* ------- */
@@ -197,7 +203,8 @@ main {
 .log.hide-es .es,
 .log.hide-ei .ei,
 .log.hide-ew .ew,
-.log.hide-el .el {
+.log.hide-el .el,
+.log.hide-ep .ep {
   display: none;
 }
 
